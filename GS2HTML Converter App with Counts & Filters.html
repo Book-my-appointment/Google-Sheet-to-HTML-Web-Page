@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sheet to Web App Converter</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #2c3e50;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        #data-count {
+            font-size: 16px;
+            font-weight: 500;
+            color: #7f8c8d;
+            margin-left: 10px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .input-group input {
+            width: calc(100% - 20px);
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .btn {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        #filter-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .filter {
+            display: flex;
+            flex-direction: column;
+        }
+        .filter label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #34495e;
+        }
+        .filter .filter-count {
+            font-weight: normal;
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-left: 5px;
+        }
+        .filter select {
+            min-width: 200px;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        #data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        #data-table th, #data-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        #data-table th {
+            background-color: #ecf0f1;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        #data-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        #shareable-link-container {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e8f4fd;
+            border: 1px solid #b3d7f2;
+            border-radius: 4px;
+            word-wrap: break-word;
+        }
+        #loader {
+            text-align: center;
+            padding: 20px;
+            font-size: 18px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Live Google Sheet Viewer 📊</h1>
+    <p>Enter your Google Sheet details below to generate a dynamic, filterable web app. Your sheet must be public.</p>
+
+    <div class="input-group">
+        <label for="apiKey">Step 1: Paste Your Google API Key</label>
+        <input type="text" id="apiKey" placeholder="Enter your Google API Key here">
+
+        <label for="sheetUrl" style="margin-top: 15px;">Step 2: Paste Your Google Sheet Shareable URL</label>
+        <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+
+        <label for="sheetRange" style="margin-top: 15px;">Step 3: Enter Sheet Name & Range</label>
+        <input type="text" id="sheetRange" placeholder="e.g., Sheet1!A:D or SalesData!A1:F500">
+    </div>
+
+    <button id="loadDataBtn" class="btn">Load & Display Data</button>
+
+    <div id="loader">Loading data...</div>
+
+    <div id="app-content" style="display:none;">
+        <h2>Filters</h2>
+        <div id="filter-container"></div>
+        <button id="resetFiltersBtn" class="btn" style="background-color: #e74c3c;">Reset Filters</button>
+        
+        <h2>Sheet Data <span id="data-count"></span></h2>
+
+        <table id="data-table">
+            <thead></thead>
+            <tbody></tbody>
+        </table>
+
+        <div id="shareable-link-container">
+            <h3>Shareable Link</h3>
+            <p>Use this link to give others a direct view of this data with the filters enabled.</p>
+            <input type="text" id="shareable-link" readonly style="width: calc(100% - 20px); padding: 8px;">
+        </div>
+    </div>
+</div>
+
+<script>
+    let fullData = [];
+    let headers = [];
+
+    // --- Initialization and Data Fetching ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const apiKey = urlParams.get('key');
+        const sheetId = urlParams.get('id');
+        const range = urlParams.get('range');
+
+        if (apiKey && sheetId && range) {
+            document.getElementById('apiKey').value = apiKey;
+            document.getElementById('sheetUrl').value = `https://docs.google.com/spreadsheets/d/${sheetId}/`;
+            document.getElementById('sheetRange').value = range;
+            fetchSheetData();
+        }
+    });
+
+    document.getElementById('loadDataBtn').addEventListener('click', fetchSheetData);
+    document.getElementById('resetFiltersBtn').addEventListener('click', resetAllFilters);
+
+    function getSheetIdFromUrl(url) {
+        const match = url.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        return match ? match[1] : null;
+    }
+
+    async function fetchSheetData() {
+        const apiKey = document.getElementById('apiKey').value.trim();
+        const sheetUrl = document.getElementById('sheetUrl').value.trim();
+        const sheetRange = document.getElementById('sheetRange').value.trim();
+        const sheetId = getSheetIdFromUrl(sheetUrl);
+
+        if (!apiKey || !sheetId || !sheetRange) {
+            alert("Please fill in all fields: API Key, Sheet URL, and Sheet Range.");
+            return;
+        }
+
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('app-content').style.display = 'none';
+
+        const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetRange}?key=${apiKey}`;
+
+        try {
+            const response = await fetch(apiUrl);
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(`Google Sheets API Error: ${error.error.message}`);
+            }
+            const data = await response.json();
+            const values = data.values;
+            
+            if (!values || values.length < 2) {
+                alert("No data found or sheet has only a header row. Please check your sheet and range.");
+                document.getElementById('loader').style.display = 'none';
+                return;
+            }
+
+            headers = values[0];
+            fullData = values.slice(1).map(row => {
+                let obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = row[i] || '';
+                });
+                return obj;
+            });
+            
+            displayAppContent();
+            createFilters();
+            applyFilters(); // Initial render
+            generateShareableLink();
+
+        } catch (error) {
+            alert(`Failed to fetch data: ${error.message}. \n\nCommon issues:\n1. Is the Google Sheet public ('Anyone with the link can view')?\n2. Is the API Key correct and the Google Sheets API enabled?\n3. Is the Sheet Name and Range correct?`);
+        } finally {
+            document.getElementById('loader').style.display = 'none';
+        }
+    }
+
+    // --- UI Display and Structure ---
+    function displayAppContent() {
+        document.querySelector('.input-group').style.display = 'none';
+        document.getElementById('loadDataBtn').style.display = 'none';
+        document.getElementById('app-content').style.display = 'block';
+    }
+
+    function createFilters() {
+        const filterContainer = document.getElementById('filter-container');
+        filterContainer.innerHTML = '';
+        headers.forEach((header, index) => {
+            const filterDiv = document.createElement('div');
+            filterDiv.className = 'filter';
+            
+            const label = document.createElement('label');
+            label.htmlFor = `filter-${index}`;
+            label.textContent = header;
+            label.innerHTML += ` <span class="filter-count" id="count-label-${index}"></span>`;
+            
+            const select = document.createElement('select');
+            select.id = `filter-${index}`;
+            select.dataset.header = header;
+            select.addEventListener('change', applyFilters);
+            
+            filterDiv.appendChild(label);
+            filterDiv.appendChild(select);
+            filterContainer.appendChild(filterDiv);
+        });
+    }
+
+    // --- Core Filtering Logic ---
+    function applyFilters() {
+        const activeFilters = getActiveFilters();
+        
+        const filteredData = fullData.filter(row => {
+            return Object.entries(activeFilters).every(([header, value]) => {
+                return row[header] === value;
+            });
+        });
+
+        updateFilterOptions(activeFilters);
+        renderTable(filteredData);
+    }
+
+    function getActiveFilters() {
+        const activeFilters = {};
+        document.querySelectorAll('#filter-container select').forEach(select => {
+            if (select.value) {
+                activeFilters[select.dataset.header] = select.value;
+            }
+        });
+        return activeFilters;
+    }
+
+    function updateFilterOptions(activeFilters) {
+        headers.forEach((header, index) => {
+            const select = document.getElementById(`filter-${index}`);
+            const currentSelection = select.value;
+            
+            // Create a temporary filter set without the current filter's own value
+            const otherFilters = { ...activeFilters };
+            delete otherFilters[header];
+
+            // Filter data based on *other* active filters to find possible options for *this* filter
+            const possibleData = fullData.filter(row => {
+                 return Object.entries(otherFilters).every(([h, v]) => row[h] === v);
+            });
+
+            // Calculate counts for options in the current filter
+            const counts = possibleData.reduce((acc, row) => {
+                const value = row[header];
+                if (value) {
+                    acc[value] = (acc[value] || 0) + 1;
+                }
+                return acc;
+            }, {});
+
+            // Rebuild the dropdown
+            select.innerHTML = `<option value="">All (${possibleData.length})</option>`;
+            const sortedOptions = Object.keys(counts).sort();
+            
+            sortedOptions.forEach(optionValue => {
+                const option = document.createElement('option');
+                option.value = optionValue;
+                option.textContent = `${optionValue} (${counts[optionValue]})`;
+                select.appendChild(option);
+            });
+            
+            // Restore selection if possible
+            select.value = currentSelection;
+            
+            // Update the label count
+            document.getElementById(`count-label-${index}`).textContent = `(${sortedOptions.length} options)`;
+        });
+    }
+
+    function resetAllFilters() {
+        document.querySelectorAll('#filter-container select').forEach(select => {
+            select.value = '';
+        });
+        applyFilters();
+    }
+    
+    // --- Table Rendering and Sharing ---
+    function renderTable(data) {
+        const tableHead = document.querySelector('#data-table thead');
+        const tableBody = document.querySelector('#data-table tbody');
+        const dataCountEl = document.getElementById('data-count');
+        
+        dataCountEl.textContent = `(Showing ${data.length} of ${fullData.length} entries)`;
+        tableHead.innerHTML = '';
+        tableBody.innerHTML = '';
+        
+        const headerRow = document.createElement('tr');
+        headers.forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            headerRow.appendChild(th);
+        });
+        tableHead.appendChild(headerRow);
+        
+        if (data.length === 0) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = headers.length;
+            cell.textContent = 'No matching data found.';
+            cell.style.textAlign = 'center';
+            row.appendChild(cell);
+            tableBody.appendChild(row);
+        } else {
+            data.forEach(rowData => {
+                const row = document.createElement('tr');
+                headers.forEach(header => {
+                    const cell = document.createElement('td');
+                    cell.textContent = rowData[header];
+                    row.appendChild(cell);
+                });
+                tableBody.appendChild(row);
+            });
+        }
+    }
+
+    function generateShareableLink() {
+        const apiKey = document.getElementById('apiKey').value.trim();
+        const sheetId = getSheetIdFromUrl(document.getElementById('sheetUrl').value.trim());
+        const range = document.getElementById('sheetRange').value.trim();
+        
+        const baseUrl = window.location.href.split('?')[0];
+        const shareableUrl = `${baseUrl}?key=${encodeURIComponent(apiKey)}&id=${encodeURIComponent(sheetId)}&range=${encodeURIComponent(range)}`;
+        
+        const linkInput = document.getElementById('shareable-link');
+        linkInput.value = shareableUrl;
+        linkInput.onclick = () => {
+            linkInput.select();
+            document.execCommand('copy');
+            alert('Link copied to clipboard!');
+        };
+    }
+</script>
+</body>
+</html>
